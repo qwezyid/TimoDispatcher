@@ -1,10 +1,7 @@
 "use client";
-
 import React, { useState, useEffect, useMemo } from "react";
 import { Input } from "./ui";
-import { searchCities } from "@/lib/api";
-
-type City = { city_id: number; name_display: string };
+import { searchCities, type City } from "@/lib/api";
 
 export default function CityCombobox({
   label,
@@ -18,7 +15,7 @@ export default function CityCombobox({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // простейший дебаунс
+  // простой «дебаунс-заглушка» (можно заменить на useDebounce)
   const debounced = useMemo(() => q, [q]);
 
   useEffect(() => {
@@ -26,15 +23,12 @@ export default function CityCombobox({
       setOptions([]);
       return;
     }
-
     const ctrl = new AbortController();
     setLoading(true);
-
     searchCities(debounced, { signal: ctrl.signal })
-      .then(setOptions)
+      .then((list) => setOptions(list))
       .catch(() => {})
       .finally(() => setLoading(false));
-
     return () => ctrl.abort();
   }, [debounced]);
 
@@ -51,9 +45,7 @@ export default function CityCombobox({
       />
       {open && (loading || options.length > 0) && (
         <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-auto">
-          {loading && (
-            <div className="px-3 py-2 text-sm text-gray-500">Загрузка…</div>
-          )}
+          {loading && <div className="px-3 py-2 text-sm text-gray-500">Загрузка…</div>}
           {!loading &&
             options.map((c) => (
               <div
@@ -72,4 +64,4 @@ export default function CityCombobox({
       )}
     </div>
   );
-} 
+}
