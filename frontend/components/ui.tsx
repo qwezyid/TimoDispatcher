@@ -1,39 +1,48 @@
-import React from "react";
-import cx from "classnames";
+"use client";
+import * as React from "react";
+import clsx from "classnames";
 
-export const Input = (p: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <input
-    {...p}
-    className={cx(
-      "w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500",
-      p.className
-    )}
-  />
-);
-
-export const Button = ({
+export function Card({
+  children,
   className,
-  ...p
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button
-    {...p}
-    className={cx(
-      "px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50",
-      className
-    )}
-  />
-);
+}: React.PropsWithChildren<{ className?: string }>) {
+  return (
+    <div className={clsx("rounded-2xl border bg-white p-4", className)}>
+      {children}
+    </div>
+  );
+}
 
-export const Card: React.FC<{
-  children: React.ReactNode;
-  className?: string;
-}> = ({ children, className }) => (
-  <div
-    className={cx(
-      "bg-white border border-gray-200 rounded-2xl p-4 shadow-sm",
-      className
-    )}
-  >
-    {children}
-  </div>
-); 
+export function Button({
+  children,
+  className,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      className={clsx(
+        "inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium",
+        "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-600",
+        className
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, ...props }, ref) => (
+    <input
+      ref={ref}
+      className={clsx(
+        "w-full rounded-xl border px-3 py-2 text-sm outline-none",
+        "focus:ring-2 focus:ring-blue-200",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+Input.displayName = "Input";
