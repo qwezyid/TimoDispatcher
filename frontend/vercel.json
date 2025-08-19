@@ -1,6 +1,7 @@
 {
   "version": 2,
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://api.your-domain.tld"
+    "NEXT_PUBLIC_API_URL=https://timodispatcher-production.up.railway.app"
   }
+
 } 
