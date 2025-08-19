@@ -6,6 +6,7 @@ import { Button, Card } from "@/components/ui";
 import CityCombobox from "@/components/CityCombobox";
 import { API_BASE, getDeals, searchPerformers } from "@/lib/api";
 
+// Тип сделки для SWR и рендера
 type Deal = {
   deal_id: number;
   created_at: string;
@@ -14,18 +15,21 @@ type Deal = {
   cost_rub?: number;
 };
 
+// Явно типизируем фетчер под SWR
+const fetchDeals: import("swr").BareFetcher<Deal[]> = async () => {
+  const data = await getDeals({ limit: 25 });
+  return data as Deal[];
+};
+
 export default function Page() {
   const [fromCity, setFrom] = useState<{ city_id: number; name_display: string } | null>(null);
   const [toCity, setTo] = useState<{ city_id: number; name_display: string } | null>(null);
   const [mode, setMode] = useState<"exact" | "partial">("exact");
   const [queryKey] = useState(0);
 
-  // Уточняем тип данных от SWR
-  const { data: deals } = useSWR<Deal[]>(
-    ["deals", queryKey],
-    () => getDeals({ limit: 25 }),
-    { revalidateOnFocus: false }
-  );
+  const { data: deals } = useSWR<Deal[]>(["deals", queryKey], fetchDeals, {
+    revalidateOnFocus: false,
+  });
 
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
@@ -46,8 +50,7 @@ export default function Page() {
   }
 
   const title = useMemo(
-    () =>
-      fromCity && toCity ? `${fromCity.name_display} → ${toCity.name_display}` : "Поиск исполнителей",
+    () => (fromCity && toCity ? `${fromCity.name_display} → ${toCity.name_display}` : "Поиск исполнителей"),
     [fromCity, toCity]
   );
 
