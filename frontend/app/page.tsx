@@ -6,15 +6,26 @@ import { Button, Card } from "@/components/ui";
 import CityCombobox from "@/components/CityCombobox";
 import { API_BASE, getDeals, searchPerformers } from "@/lib/api";
 
+type Deal = {
+  deal_id: number;
+  created_at: string;
+  city_from: number;
+  city_to: number;
+  cost_rub?: number;
+};
+
 export default function Page() {
   const [fromCity, setFrom] = useState<{ city_id: number; name_display: string } | null>(null);
   const [toCity, setTo] = useState<{ city_id: number; name_display: string } | null>(null);
   const [mode, setMode] = useState<"exact" | "partial">("exact");
-  const [queryKey, setQueryKey] = useState(0);
+  const [queryKey] = useState(0);
 
-  const { data: deals } = useSWR(["deals", queryKey], () => getDeals({ limit: 25 }), {
-    revalidateOnFocus: false,
-  });
+  // Уточняем тип данных от SWR
+  const { data: deals } = useSWR<Deal[]>(
+    ["deals", queryKey],
+    () => getDeals({ limit: 25 }),
+    { revalidateOnFocus: false }
+  );
 
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
@@ -36,9 +47,7 @@ export default function Page() {
 
   const title = useMemo(
     () =>
-      fromCity && toCity
-        ? `${fromCity.name_display} → ${toCity.name_display}`
-        : "Поиск исполнителей",
+      fromCity && toCity ? `${fromCity.name_display} → ${toCity.name_display}` : "Поиск исполнителей",
     [fromCity, toCity]
   );
 
@@ -59,25 +68,18 @@ export default function Page() {
             <div className="flex rounded-xl border p-1 bg-gray-50">
               <button
                 onClick={() => setMode("exact")}
-                className={`px-3 py-1 text-sm rounded-lg ${
-                  mode === "exact" ? "bg-white shadow" : ""
-                }`}
+                className={`px-3 py-1 text-sm rounded-lg ${mode === "exact" ? "bg-white shadow" : ""}`}
               >
                 Точное
               </button>
               <button
                 onClick={() => setMode("partial")}
-                className={`px-3 py-1 text-sm rounded-lg ${
-                  mode === "partial" ? "bg-white shadow" : ""
-                }`}
+                className={`px-3 py-1 text-sm rounded-lg ${mode === "partial" ? "bg-white shadow" : ""}`}
               >
                 Частичное
               </button>
             </div>
-            <Button
-              onClick={runSearch}
-              disabled={!fromCity || !toCity || loading}
-            >
+            <Button onClick={runSearch} disabled={!fromCity || !toCity || loading}>
               {loading ? "Ищу…" : "Найти"}
             </Button>
           </div>
@@ -85,8 +87,8 @@ export default function Page() {
         <Card className="md:col-span-2">
           <div className="text-sm text-gray-700 mb-2">Подсказка</div>
           <div className="text-sm text-gray-600">
-            Выберите города из автодополнения. В режиме «Частичное» попадут водители с длинными маршрутами,
-            проходящими через оба города в нужном порядке.
+            Выберите города из автодополнения. В режиме «Частичное» попадут водители с длинными маршрутами, проходящими
+            через оба города в нужном порядке.
           </div>
         </Card>
       </div>
@@ -101,14 +103,8 @@ export default function Page() {
               </div>
             )}
           </div>
-          {!results && (
-            <div className="text-sm text-gray-500">
-              Выберите города и нажмите «Найти».
-            </div>
-          )}
-          {results && results.length === 0 && (
-            <div className="text-sm text-gray-500">Совпадений не найдено.</div>
-          )}
+          {!results && <div className="text-sm text-gray-500">Выберите города и нажмите «Найти».</div>}
+          {results && results.length === 0 && <div className="text-sm text-gray-500">Совпадений не найдено.</div>}
           {results && results.length > 0 && (
             <div className="grid sm:grid-cols-2 gap-3">
               {results.map((r: any) => (
@@ -132,28 +128,26 @@ export default function Page() {
             </div>
           )}
         </Card>
+
         <Card>
           <div className="text-lg font-semibold mb-2">Последние сделки</div>
           {!deals && <div className="text-sm text-gray-500">Загружаю…</div>}
-          {deals && deals.length === 0 && (
+          {Array.isArray(deals) && deals.length === 0 && (
             <div className="text-sm text-gray-500">Пока нет данных</div>
           )}
           <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
-            {deals &&
-              deals.map((d: any) => (
+            {Array.isArray(deals) &&
+              deals.map((d) => (
                 <div key={d.deal_id} className="p-3 rounded-xl border bg-white">
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-sm">#{d.deal_id}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(d.created_at).toLocaleDateString()}
-                    </div>
+                    <div className="text-xs text-gray-500">{new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
                   <div className="text-sm text-gray-700">
                     {d.city_from} → {d.city_to}
                   </div>
                   <div className="text-sm">
-                    <span className="text-gray-500">₽</span>
-                    {Number(d.cost_rub || 0).toLocaleString()}
+                    <span className="text-gray-500">₽</span> {Number(d.cost_rub || 0).toLocaleString()}
                   </div>
                 </div>
               ))}
@@ -166,4 +160,4 @@ export default function Page() {
       </footer>
     </main>
   );
-} 
+}
