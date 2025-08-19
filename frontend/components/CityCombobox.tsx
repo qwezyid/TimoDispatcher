@@ -15,8 +15,7 @@ export default function CityCombobox({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // простой «дебаунс-заглушка» (можно заменить на useDebounce)
-  const debounced = useMemo(() => q, [q]);
+  const debounced = useMemo(() => q, [q]); // простая заглушка
 
   useEffect(() => {
     if (!debounced) {
