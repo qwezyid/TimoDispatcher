@@ -71,34 +71,15 @@ def search_cities(q: str = "", limit: int = 50):
 @app.post("/search")
 def search_performers(params: SearchRequest):
     """
-    exact   — первый город варианта = from_city и последний = to_city (или наоборот).
-    partial — вариант проходит через оба города и позиция(from) < позиция(to).
+    exact   — маршрут начинается в from_city и заканчивается в to_city (или наоборот).
+    partial — маршрут проходит через оба города в порядке from -> to (маршрут может быть длиннее).
     """
     a = params.from_city
     b = params.to_city
 
     with get_conn() as c, c.cursor(cursor_factory=RealDictCursor) as cur:
         if params.mode == "exact":
-            # Находим старт/финиш каждого варианта по min(position)/max(position)
             sql = """
-            WITH first_pos AS (
-              SELECT r1.variant_id, r1.city_id AS start_city
-              FROM route_variant_positions r1
-              JOIN (
-                SELECT variant_id, MIN(position) AS min_pos
-                FROM route_variant_positions
-                GROUP BY variant_id
-              ) s ON s.variant_id = r1.variant_id AND s.min_pos = r1.position
-            ),
-            last_pos AS (
-              SELECT r2.variant_id, r2.city_id AS end_city
-              FROM route_variant_positions r2
-              JOIN (
-                SELECT variant_id, MAX(position) AS max_pos
-                FROM route_variant_positions
-                GROUP BY variant_id
-              ) e ON e.variant_id = r2.variant_id AND e.max_pos = r2.position
-            )
             SELECT DISTINCT
               p.performer_id,
               p.fio,
@@ -106,16 +87,15 @@ def search_performers(params: SearchRequest):
               pv.variant_id
             FROM performers p
             JOIN performer_variants pv ON pv.performer_id = p.performer_id
-            JOIN first_pos f ON f.variant_id = pv.variant_id
-            JOIN last_pos  t ON t.variant_id = pv.variant_id
-            WHERE (f.start_city = %(a)s AND t.end_city = %(b)s)
-               OR (f.start_city = %(b)s AND t.end_city = %(a)s)
+            JOIN route_variants rv     ON rv.variant_id = pv.variant_id
+            WHERE
+              (rv.stops[1] = %(a)s AND rv.stops[array_length(rv.stops, 1)] = %(b)s)
+              OR
+              (rv.stops[1] = %(b)s AND rv.stops[array_length(rv.stops, 1)] = %(a)s)
             ORDER BY p.fio, pv.variant_id;
             """
             cur.execute(sql, {"a": a, "b": b})
-
         else:
-            # В варианте есть обе точки, причём позиция(from) < позиция(to)
             sql = """
             SELECT DISTINCT
               p.performer_id,
@@ -124,11 +104,10 @@ def search_performers(params: SearchRequest):
               pv.variant_id
             FROM performers p
             JOIN performer_variants pv ON pv.performer_id = p.performer_id
-            JOIN route_variant_positions f
-              ON f.variant_id = pv.variant_id AND f.city_id = %(a)s
-            JOIN route_variant_positions t
-              ON t.variant_id = pv.variant_id AND t.city_id = %(b)s
-            WHERE f.position < t.position
+            JOIN route_variants rv     ON rv.variant_id = pv.variant_id
+            JOIN LATERAL unnest(rv.stops) WITH ORDINALITY AS aa(city_id, pos_a) ON aa.city_id = %(a)s
+            JOIN LATERAL unnest(rv.stops) WITH ORDINALITY AS bb(city_id, pos_b) ON bb.city_id = %(b)s
+            WHERE aa.pos_a < bb.pos_b
             ORDER BY p.fio, pv.variant_id;
             """
             cur.execute(sql, {"a": a, "b": b})
@@ -271,6 +250,7 @@ def detach_variant(performer_id: int, variant_id: int):
         cur.execute("DELETE FROM performer_variants WHERE performer_id=%s AND variant_id=%s", (performer_id, variant_id))
         c.commit()
         return {"ok": True}
+
 
 
 
