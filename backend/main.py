@@ -1,19 +1,26 @@
 import os, json
-from typing import Optional
-from fastapi import FastAPI, HTTPException
+from typing import Optional, List
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 
+# ---- ENV
 DATABASE_URL = os.getenv("DATABASE_URL")
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
 
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+CORS_REGEX = os.getenv("CORS_REGEX")  # например: https://.*\.vercel\.app$
+
+# ---- APP
 app = FastAPI(title="Dispatcher API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in CORS_ORIGINS if o.strip()],
+    allow_origins=CORS_ORIGINS if CORS_ORIGINS else [],
+    allow_origin_regex=CORS_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,6 +29,28 @@ app.add_middleware(
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
+# ---- MODELS
+class SearchRequest(BaseModel):
+    from_city: int
+    to_city: int
+    mode: str = "exact"
+
+class DealPatch(BaseModel):
+    status: Optional[str] = None
+    cost_rub: Optional[float] = None
+    payload: Optional[dict] = None
+
+class Performer(BaseModel):
+    fio: str
+    phone_norm: str
+    geo_zone: Optional[str] = ""
+    note: Optional[str] = ""
+
+class RouteVariant(BaseModel):
+    name: Optional[str] = ""
+    stops: List[int]
+
+# ---- ROUTES
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -29,18 +58,15 @@ def health():
 @app.get("/cities")
 def search_cities(q: str = "", limit: int = 50):
     sql = """
-      SELECT city_id, name_display FROM cities 
+      SELECT city_id, name_display
+      FROM cities
       WHERE name_norm ILIKE %(q)s OR name_display ILIKE %(q)s
-      ORDER BY name_display LIMIT %(l)s
+      ORDER BY name_display
+      LIMIT %(l)s
     """
     with get_conn() as c, c.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, {"q": f"%{q}%", "l": limit})
         return cur.fetchall()
-
-class SearchRequest(BaseModel):
-    from_city: int
-    to_city: int
-    mode: str = "exact"
 
 @app.post("/search")
 def search_performers(params: SearchRequest):
@@ -59,32 +85,42 @@ def search_performers(params: SearchRequest):
 
 @app.get("/deals")
 def deals(limit: int = 100, offset: int = 0, performer_id: Optional[int] = None):
-    q = "SELECT * FROM deals ORDER BY deal_id DESC LIMIT %(l)s OFFSET %(o)s"
+    # добавлен джоин к cities для имён городов
+    base = """
+      SELECT
+        d.deal_id,
+        d.created_at,
+        d.city_from,
+        cf.name_display AS city_from_name,
+        d.city_to,
+        ct.name_display AS city_to_name,
+        d.cost_rub,
+        d.performer_id,
+        d.status,
+        d.payload
+      FROM deals d
+      LEFT JOIN cities cf ON cf.city_id = d.city_from
+      LEFT JOIN cities ct ON ct.city_id = d.city_to
+    """
+    where = ""
     args = {"l": limit, "o": offset}
     if performer_id:
-        q = "SELECT * FROM deals WHERE performer_id=%(pid)s ORDER BY deal_id DESC LIMIT %(l)s OFFSET %(o)s"
+        where = "WHERE d.performer_id = %(pid)s"
         args["pid"] = performer_id
+    q = f"{base} {where} ORDER BY d.created_at DESC, d.deal_id DESC LIMIT %(l)s OFFSET %(o)s"
     with get_conn() as c, c.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(q, args)
         return cur.fetchall()
-
-class DealPatch(BaseModel):
-    status: Optional[str] = None
-    cost_rub: Optional[float] = None
-    payload: Optional[dict] = None
 
 @app.patch("/deals/{deal_id}")
 def update_deal(deal_id: int, body: DealPatch):
     sets, params = [], {"id": deal_id}
     if body.status is not None:
-        sets.append("status=%(status)s")
-        params["status"] = body.status
+        sets.append("status=%(status)s"); params["status"] = body.status
     if body.cost_rub is not None:
-        sets.append("cost_rub=%(cost)s")
-        params["cost"] = body.cost_rub
+        sets.append("cost_rub=%(cost)s"); params["cost"] = body.cost_rub
     if body.payload is not None:
-        sets.append("payload=%(payload)s")
-        params["payload"] = json.dumps(body.payload)
+        sets.append("payload=%(payload)s"); params["payload"] = json.dumps(body.payload)
     if not sets:
         raise HTTPException(400, "Nothing to update")
     sql = f"UPDATE deals SET {', '.join(sets)} WHERE deal_id=%(id)s RETURNING *"
@@ -94,15 +130,7 @@ def update_deal(deal_id: int, body: DealPatch):
         c.commit()
         return row
 
-# === Дополнительные CRUD (минимальные) ===
-from fastapi import Body
-
-class Performer(BaseModel):
-    fio: str
-    phone_norm: str
-    geo_zone: Optional[str] = ""
-    note: Optional[str] = ""
-
+# ---- Performers CRUD
 @app.get("/performers")
 def list_performers(query: Optional[str] = None, limit: int = 50, offset: int = 0):
     where = ""
@@ -142,10 +170,7 @@ def update_performer(performer_id: int, p: Performer):
         c.commit()
         return row
 
-class RouteVariant(BaseModel):
-    name: Optional[str] = ""
-    stops: list[int]
-
+# ---- Route Variants
 @app.get("/route-variants")
 def list_route_variants(limit: int = 50, offset: int = 0):
     sql = "SELECT * FROM route_variants ORDER BY variant_id DESC LIMIT %(l)s OFFSET %(o)s"
@@ -163,16 +188,13 @@ def create_route_variant(rv: RouteVariant):
     with get_conn() as c, c.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, {"name": rv.name or "", "stops": rv.stops})
         row = cur.fetchone()
-        # пересоберём позиции
         cur.execute("SELECT rebuild_variant_positions(%s)", (row["variant_id"],))
         c.commit()
         return row
 
 @app.put("/route-variants/{variant_id}")
 def update_route_variant(variant_id: int, rv: RouteVariant):
-    sql = """
-      UPDATE route_variants SET name=%(name)s, stops=%(stops)s WHERE variant_id=%(id)s RETURNING *
-    """
+    sql = "UPDATE route_variants SET name=%(name)s, stops=%(stops)s WHERE variant_id=%(id)s RETURNING *"
     with get_conn() as c, c.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, {"name": rv.name or "", "stops": rv.stops, "id": variant_id})
         row = cur.fetchone()
@@ -194,9 +216,6 @@ def attach_variant(performer_id: int, body: dict = Body(...)):
 @app.delete("/performers/{performer_id}/variants/{variant_id}")
 def detach_variant(performer_id: int, variant_id: int):
     with get_conn() as c, c.cursor() as cur:
-        cur.execute(
-            "DELETE FROM performer_variants WHERE performer_id=%s AND variant_id=%s",
-            (performer_id, variant_id),
-        )
+        cur.execute("DELETE FROM performer_variants WHERE performer_id=%s AND variant_id=%s", (performer_id, variant_id))
         c.commit()
-        return {"ok": True} 
+        return {"ok": True}
